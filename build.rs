@@ -1,36 +1,28 @@
-// Compile the libpolycall C core from source with the SAME toolchain Rust uses
-// (MSVC on *-pc-windows-msvc, GNU on *-gnu / Linux). This makes rust-polycall a
-// self-contained crate that links cleanly everywhere, instead of depending on a
-// pre-built static archive that may not match Rust's linker.
-use std::path::PathBuf;
+//! Configure linking to an existing libpolycall build.
+//!
+//! The adapter deliberately does not compile or copy the shared C core.
+
+use std::env;
 
 fn main() {
-    // bindings/rust-polycall -> repo root is two levels up.
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..");
-    let src = root.join("src");
-    let include = root.join("include");
+    println!("cargo:rerun-if-env-changed=POLYCALL_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=POLYCALL_LIB_NAME");
+    println!("cargo:rerun-if-env-changed=POLYCALL_LINK_KIND");
 
-    let units = [
-        "core/polycall_context.c",
-        "core/polycall_core.c",
-        "config/polycall_config.c",
-        "config/polycall_config_schema.c",
-        "runtime/polycall_runtime.c",
-        "network/polycall_network.c",
-        "protocol/polycall_protocol.c",
-        "ffi/polycall_ffi.c",
-        "adapter/polycall_adapter.c",
-        "diagnostics/polycall_diagnostics.c",
-    ];
+    let Ok(directory) = env::var("POLYCALL_LIB_DIR") else {
+        println!(
+            "cargo:warning=POLYCALL_LIB_DIR is unset; the final executable must provide libpolycall"
+        );
+        return;
+    };
 
-    let mut build = cc::Build::new();
-    build.include(&include).include(&src);
-    for u in units {
-        let p = src.join(u);
-        println!("cargo:rerun-if-changed={}", p.display());
-        build.file(p);
-    }
-    build.compile("polycall"); // emits libpolycall.a / polycall.lib and links it
+    let name = env::var("POLYCALL_LIB_NAME").unwrap_or_else(|_| "polycall".to_owned());
+    let kind = env::var("POLYCALL_LINK_KIND").unwrap_or_else(|_| "dylib".to_owned());
+    assert!(
+        matches!(kind.as_str(), "dylib" | "static"),
+        "POLYCALL_LINK_KIND must be dylib or static"
+    );
+
+    println!("cargo:rustc-link-search=native={directory}");
+    println!("cargo:rustc-link-lib={kind}={name}");
 }

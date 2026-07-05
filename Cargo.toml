@@ -2,11 +2,16 @@
 name = "rust-polycall"
 version = "1.5.0"
 edition = "2021"
-description = "Rust adapter for libpolycall (thin FFI over the shared core)"
+rust-version = "1.70"
+description = "Thin, safe Rust adapter for the libpolycall FFI"
 license = "MIT"
 authors = ["Nnamdi Michael Okpala <okpalan@protonmail.com>"]
+readme = "README.md"
 homepage = "https://www.libpolycall.obinexus.org"
-repository = "https://github.com/obinexus/libpolycall"
+repository = "https://github.com/obinexus/rust-polycall"
+keywords = ["libpolycall", "ffi", "adapter"]
+categories = ["api-bindings"]
+build = "build.rs"
 
 [lib]
 name = "rust_polycall"
@@ -16,10 +21,6 @@ path = "src/lib.rs"
 name = "demo"
 path = "examples/demo.rs"
 
-build = "build.rs"
-
-# The build script compiles the shared C core from source with the SAME
-# toolchain Rust uses (MSVC or GNU), so the crate is self-contained and links
-# cleanly on every platform. See build.rs.
-[build-dependencies]
-cc = "1"
+[package.metadata.libpolycall]
+minimum-version = "1.5.0"
+library-environment = "POLYCALL_LIB_DIR"

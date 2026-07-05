@@ -1,21 +1,22 @@
-// rust-polycall demo.
-// Build the core first (../../setup.sh), then:  cargo run --example demo -- ../rust-polycallrc
-use std::process::exit;
+use std::process::ExitCode;
 
-fn main() {
-    let cfg = std::env::args().nth(1);
-    println!("rust-polycall using libpolycall {}", rust_polycall::version());
+fn main() -> ExitCode {
+    let config = std::env::args().nth(1);
 
-    match rust_polycall::describe(cfg.as_deref()) {
-        Ok(summary) => println!("{summary}"),
-        Err(e) => {
-            eprintln!("{e}");
-            exit(e.code);
+    match run(config.as_deref()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(u8::try_from(error.code).unwrap_or(1))
         }
     }
+}
 
-    if let Err(e) = rust_polycall::run_config(cfg.as_deref(), true) {
-        eprintln!("{e}");
-        exit(e.code);
-    }
+fn run(config: Option<&str>) -> Result<(), rust_polycall::PolycallError> {
+    println!(
+        "rust-polycall using libpolycall {}",
+        rust_polycall::version()?
+    );
+    println!("{}", rust_polycall::describe(config)?);
+    rust_polycall::run_config(config, true)
 }

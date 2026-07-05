@@ -1,38 +1,76 @@
-# rust-polycall
+# @obinexusltd/rust-polycall
 
-**Rust** binding for [libpolycall](https://github.com/obinexus/libpolycall) — an
-implemented reference adapter.
+Thin, safe Rust source binding for libpolycall 1.5. The crate translates Rust
+strings and results at the FFI boundary; configuration parsing, networking,
+and runtime behavior remain in the shared C core.
 
-A thin, safe wrapper over the flat FFI boundary (`polycall_ffi.h`). It contains
-no config or runtime logic; every call forwards to the shared C core. See
-[../../docs/adapter-pattern.md](../../docs/adapter-pattern.md).
+The npm package distributes the complete Cargo source tree and exposes every
+project directory through a location-independent CommonJS index.
 
-## Self-contained build
+## Install
 
-`build.rs` compiles the C core from `../../src` with the **same toolchain Rust
-uses** (via the `cc` crate), so the crate links cleanly on MSVC, MinGW/GNU, and
-Linux without a separate core build step:
+From npm:
 
 ```bash
-cd bindings/rust-polycall
-cargo build
-cargo test        # version_is_1_5_0, run_defaults_ok
+npm install @obinexusltd/rust-polycall
+```
+
+As a Rust path dependency:
+
+```toml
+[dependencies]
+rust-polycall = { path = "node_modules/@obinexusltd/rust-polycall" }
+```
+
+## Link libpolycall
+
+Set the directory containing `polycall.lib`, `libpolycall.a`, or the shared
+library import file before building a final executable:
+
+```powershell
+$env:POLYCALL_LIB_DIR = 'C:\path\to\libpolycall\lib'
+$env:POLYCALL_LIB_NAME = 'polycall'     # optional; this is the default
+$env:POLYCALL_LINK_KIND = 'dylib'       # optional: dylib or static
 cargo run --example demo -- rust-polycallrc
 ```
 
-## API
+The crate does not compile or duplicate the C runtime. Unit tests install
+small ABI mocks, so `cargo test --lib` needs no local libpolycall build.
+
+## Rust API
 
 ```rust
-rust_polycall::version();                            // "1.5.0"
+let version = rust_polycall::version()?;
+let summary = rust_polycall::describe(Some("rust-polycallrc"))?;
 rust_polycall::run_config(Some("rust-polycallrc"), true)?;
-let summary = rust_polycall::describe(None)?;
 ```
 
-## Config
+Core status codes are preserved in `PolycallError::code`. Paths containing an
+interior NUL are rejected before crossing the C boundary.
 
-Read-only config: [`rust-polycallrc`](rust-polycallrc) — the standard
-`*polycallrc` convention on the single shared schema. No per-language parser.
+## npm source index
 
-## Manifest
+```js
+const rustPolycall = require('@obinexusltd/rust-polycall');
 
-See [`polycall-binding.json`](polycall-binding.json).
+console.log(rustPolycall.directories.src.relativeFiles);
+console.log(rustPolycall.resolve('examples', 'demo.rs'));
+```
+
+`src`, `dist`, `examples`, and `tests` are recursively indexed with both
+absolute paths and package-relative filenames. Resolution rejects traversal
+outside those roots.
+
+## Verification
+
+```bash
+npm test
+npm pack --dry-run
+```
+
+The mandatory prepack suite runs Rust unit tests, checks the example, validates
+npm metadata/directories, and enforces the thin-adapter source boundary.
+
+Author: Nnamdi Michael Okpala <okpalan@protonmail.com>
+
+License: MIT
