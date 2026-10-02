@@ -1,6 +1,6 @@
 {
   "name": "@obinexusltd/rust-polycall",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Rust source binding for the Polycall C library (binding ABI v1)",
   "main": "index.js",
   "type": "commonjs",

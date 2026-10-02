@@ -2,7 +2,7 @@
   "name": "rust-polycall",
   "package": "@obinexusltd/rust-polycall",
   "crate": "rust-polycall",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "language": "Rust",
   "adapter": true,
   "ffi": true,

@@ -11,6 +11,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const library = read('src/lib.rs');
+// rustfmt may wrap declarations: compare on a whitespace-normalised copy
+const flat = library.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/,? \)/g, ')');
 const build = read('build.rs');
 const cargo = read('Cargo.toml');
 
@@ -36,7 +38,7 @@ const declarations = {
   polycall_peer_health: /fn polycall_peer_health\(/
 };
 for (const [symbol, pattern] of Object.entries(declarations)) {
-  assert.match(library, pattern, `missing or wrong declaration of ${symbol}`);
+  assert.match(flat, pattern, `missing or wrong declaration of ${symbol}`);
 }
 assert.match(library, /unsafe extern "C"/);
 assert.match(cargo, /rust-version = "1\.82"/, 'unsafe extern blocks need Rust 1.82');

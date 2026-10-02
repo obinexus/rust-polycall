@@ -8,7 +8,10 @@ const api = require('..');
 const pkg = require('../package.json');
 
 assert.equal(pkg.name, '@obinexusltd/rust-polycall');
-assert.equal(pkg.version, '1.0.0');
+// one version across the npm, Cargo and binding manifests
+const cargoVersion = /^version = "([^"]+)"/m.exec(fs.readFileSync(path.join(__dirname, '..', 'Cargo.toml'), 'utf8'))[1];
+assert.equal(pkg.version, cargoVersion);
+assert.equal(require('../polycall-binding.json').version, cargoVersion);
 assert.equal(pkg.author, 'Nnamdi Michael Okpala <okpalan@protonmail.com>');
 assert.equal(pkg.license, 'MIT');
 assert.equal(pkg.publishConfig.access, 'public');
