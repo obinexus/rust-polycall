@@ -1,17 +1,20 @@
 [package]
 name = "rust-polycall"
-version = "1.5.0"
+version = "1.0.0"
 edition = "2021"
-rust-version = "1.70"
-description = "Thin, safe Rust adapter for the libpolycall FFI"
+# `unsafe extern "C"` blocks (src/lib.rs) need Rust 1.82.
+rust-version = "1.82"
+description = "Safe Rust binding for the Polycall C library (binding ABI v1)"
 license = "MIT"
 authors = ["Nnamdi Michael Okpala <okpalan@protonmail.com>"]
 readme = "README.md"
-homepage = "https://www.libpolycall.obinexus.org"
+homepage = "https://github.com/obinexus/rust-polycall"
 repository = "https://github.com/obinexus/rust-polycall"
-keywords = ["libpolycall", "ffi", "adapter"]
+keywords = ["polycall", "ffi", "binding", "peer-to-peer"]
 categories = ["api-bindings"]
 build = "build.rs"
+links = "polycall"
+exclude = ["target/", "*.tgz", "node_modules/"]
 
 [lib]
 name = "rust_polycall"
@@ -21,6 +24,11 @@ path = "src/lib.rs"
 name = "demo"
 path = "examples/demo.rs"
 
-[package.metadata.libpolycall]
-minimum-version = "1.5.0"
+[[example]]
+name = "peer_tool"
+path = "examples/peer_tool.rs"
+
+[package.metadata.polycall]
+core = "polycall >= 1.1.0 (binding ABI 1)"
+core-repository = "https://github.com/obinexus/polycall"
 library-environment = "POLYCALL_LIB_DIR"

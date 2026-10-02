@@ -1,22 +1,31 @@
+//! `cargo run --example demo -- [CONFIG]`: print the library version, describe
+//! and strictly validate a configuration file through the real core.
+
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let config = std::env::args().nth(1);
+    let config = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "rust-polycallrc".to_owned());
 
-    match run(config.as_deref()) {
+    match run(&config) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
-            ExitCode::from(u8::try_from(error.code).unwrap_or(1))
+            eprintln!("rust-polycall demo: {error}");
+            ExitCode::FAILURE
         }
     }
 }
 
-fn run(config: Option<&str>) -> Result<(), rust_polycall::PolycallError> {
+fn run(config: &str) -> Result<(), rust_polycall::Error> {
+    rust_polycall::check_abi()?;
     println!(
-        "rust-polycall using libpolycall {}",
-        rust_polycall::version()?
+        "rust-polycall using libpolycall {} (binding ABI {})",
+        rust_polycall::version()?,
+        rust_polycall::abi_version()
     );
-    println!("{}", rust_polycall::describe(config)?);
-    rust_polycall::run_config(config, true)
+    println!("{}", rust_polycall::describe(Some(config))?);
+    rust_polycall::run_config(Some(config), true)?;
+    println!("{config}: valid for running with this build");
+    Ok(())
 }

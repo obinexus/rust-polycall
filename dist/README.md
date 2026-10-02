@@ -1,5 +1,6 @@
 # Distribution notes
 
-The npm artifact contains the complete Rust source adapter, Cargo metadata,
-examples, and verification tests. It intentionally excludes `target` and all
-platform-specific binaries. Final applications link to an external libpolycall.
+The npm artifact contains the complete Rust source binding, Cargo metadata,
+examples and tests. It excludes `target/` and all platform binaries; the
+crate links the separately installed Polycall C library
+(https://github.com/obinexus/polycall, binding ABI v1) at build time.

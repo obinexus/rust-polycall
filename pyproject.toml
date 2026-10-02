@@ -1,0 +1,15 @@
+# QA descriptor for the Polycall binding matrix (read by polycall/qa/run_qa.py).
+# This repository is NOT a Python package and is not pip-installable;
+# its native manifest is Cargo.toml.
+[tool.polycall.binding]
+name = "rust-polycall"
+language = "Rust"
+native_manifest = "Cargo.toml"
+registry = "crates.io"
+package = "rust-polycall"
+abi = 1
+support = "supported"
+linux_image = "rust:1"
+build = "cargo build --all-targets"
+test = "cargo test && cargo clippy --all-targets -- -D warnings"
+windows_test = ""

@@ -1,8 +1,11 @@
-# rust-polycallrc - read-only Rust runtime overrides for libpolycall
+# rust-polycallrc - Rust runtime overrides for Polycall
 #
-# This file uses the SHARED polycall schema (src/config/polycall_config_schema.c).
-# It introduces no new keys or parser: the Rust adapter passes this path to
-# the core via the FFI boundary. Values here override polycallrc for Rust.
+# Grammar: the core's own configuration loader -- exactly what
+# `polycall config validate rust-polycallrc` and
+# polycall_ffi_run_config(path, run) accept (see the core's
+# docs/BINDING_ABI.md and docs/CONFIGURATION_STANDARD.md). This binding adds
+# no keys and no parser: rust_polycall::run_config(Some(path), true) passes
+# the path to the core, which treats unknown keys as errors in that mode.
 
 log_level=info
 max_connections=1000

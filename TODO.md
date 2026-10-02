@@ -1,13 +1,13 @@
-# TODO — rust-polycall
+# TODO - rust-polycall
 
-Status: implemented Rust adapter and npm source distribution.
+Status: safe binding over the Polycall binding ABI v1, tested against the
+real installed core (Linux, rust:1 image).
 
-- [x] Wrap the version, run-config, and describe libpolycall FFI calls.
-- [x] Preserve core status codes and reject invalid Rust strings safely.
-- [x] Link an external libpolycall without compiling a second runtime.
-- [x] Add mock-backed Rust unit tests and a checked example.
-- [x] Add public npm metadata and recursive relative-directory indexes.
-- [x] Add mandatory Cargo, package, and thin-boundary prepack checks.
-- [ ] Exercise the demo against an installed libpolycall 1.5 shared library.
-- [ ] Publish the crate to crates.io when the Rust registry release is planned.
-- [ ] Publish `@obinexusltd/rust-polycall` after npm authentication is confirmed.
+- [x] Declare the exact ABI v1 signatures from `polycall.h` (`sys`).
+- [x] Safe API: version/ABI check, run_config, describe, call, `Peer` (Drop).
+- [x] `Error` with status code, `polycall_strerror` name and `polycall_last_error` detail.
+- [x] Link through `POLYCALL_LIB_DIR` or pkg-config.
+- [x] Integration tests against the real library and CLI; clippy clean; valgrind clean.
+- [ ] Run the test-suite on Windows (MSVC `polycall.lib` / MinGW `libpolycall.dll.a`) - no Rust toolchain on the QA host.
+- [ ] Publish the crate to crates.io (name `rust-polycall` is unclaimed) when a release is planned.
+- [ ] Publish `@obinexusltd/rust-polycall` to npm when a release is planned.

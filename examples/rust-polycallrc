@@ -1,4 +1,4 @@
-# Example Rust runtime override
+# Example Rust runtime override (same grammar as `polycall config validate`)
 log_level=debug
 max_connections=128
 network_timeout=2000

@@ -1,12 +1,18 @@
 {
   "name": "rust-polycall",
   "package": "@obinexusltd/rust-polycall",
-  "version": "1.5.0",
+  "crate": "rust-polycall",
+  "version": "1.0.0",
   "language": "Rust",
   "adapter": true,
   "ffi": true,
+  "abi": 1,
   "config": "rust-polycallrc",
-  "core": "../../src",
+  "core": "polycall >= 1.1.0 (binding ABI 1)",
+  "core_repository": "https://github.com/obinexus/polycall",
+  "entrypoint": "src/lib.rs",
+  "build": "cargo build",
+  "test": "cargo test",
   "license": "MIT",
   "author": "Nnamdi Michael Okpala <okpalan@protonmail.com>"
 }
