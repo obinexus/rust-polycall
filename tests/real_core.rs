@@ -3,17 +3,29 @@
 //!
 //! Requirements: the library linked by build.rs, and the CLI on PATH or in
 //! `POLYCALL_CLI`. A missing CLI fails the tests that need it (it is never
-//! treated as a pass).
+//! treated as a pass). Only documented CLI arguments are used
+//! (`polycall help start|stop|peer|daemon`); daemon settings come from
+//! Polycallfile keys (core docs/DAEMON.md).
 
 use rust_polycall::{self as pc, status, sys, Peer, WAIT_FOREVER};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const TOKEN: &str = "rust-polycall-test-token-5d1e";
+/// A random shared token for this test run (never a fixed secret).
+fn token() -> &'static str {
+    static T: OnceLock<String> = OnceLock::new();
+    T.get_or_init(|| {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("rpt-{:x}-{:x}", std::process::id(), nanos)
+    })
+}
 
 fn cli() -> String {
     std::env::var("POLYCALL_CLI").unwrap_or_else(|_| "polycall".to_owned())
@@ -56,7 +68,7 @@ fn spawn_with_endpoint(args: &[&str]) -> Proc {
         .arg("--endpoint-file")
         .arg(&file)
         .env("POLYCALL_TELEMETRY", "off")
-        .env("POLYCALL_DEV_TOKEN", TOKEN)
+        .env("POLYCALL_DEV_TOKEN", token())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let child = cmd
@@ -85,7 +97,21 @@ fn spawn_with_endpoint(args: &[&str]) -> Proc {
 }
 
 fn start_runtime() -> Proc {
-    spawn_with_endpoint(&["start", "--endpoint", "127.0.0.1:0"])
+    spawn_with_endpoint(&[
+        "start",
+        "--endpoint",
+        "127.0.0.1:0",
+        "--auth-token",
+        token(),
+    ])
+}
+
+fn cli_status(args: &[&str]) -> std::process::Output {
+    Command::new(cli())
+        .args(args)
+        .env("POLYCALL_TELEMETRY", "off")
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run the polycall CLI '{}': {e}", cli()))
 }
 
 fn start_c_peer(node_id: &str) -> Proc {
@@ -126,7 +152,7 @@ fn b64(data: &[u8]) -> String {
 }
 
 fn node(id: &str) -> Peer {
-    Peer::open(id, Some("127.0.0.1:0"), Some(TOKEN)).expect("open node")
+    Peer::open(id, Some("127.0.0.1:0"), Some(token())).expect("open node")
 }
 
 fn code<T: std::fmt::Debug>(r: pc::Result<T>) -> i32 {
@@ -151,7 +177,14 @@ fn version_and_abi_check() {
 
 #[test]
 fn run_config_valid_missing_invalid_strict_tls() {
-    let repo_rc = concat!(env!("CARGO_MANIFEST_DIR"), "/rust-polycallrc");
+    // cargo sets CARGO_MANIFEST_DIR at run time too; the compile-time value
+    // is the fallback (a test binary run outside cargo can be pointed at a
+    // checkout by setting it)
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let repo_rc = manifest_dir.join("rust-polycallrc");
+    let repo_rc = repo_rc.to_str().unwrap();
     pc::run_config(Some(repo_rc), true).expect("shipped rust-polycallrc is valid for running");
     pc::run_config(Some(repo_rc), false).expect("validate");
 
@@ -264,6 +297,40 @@ fn call_against_polycall_start() {
         code(pc::call("not-an-endpoint", "debug", "echo", None, 1000)),
         status::INVALID_ARGUMENT
     );
+
+    // concurrent calls from several threads into the same runtime
+    let workers: Vec<_> = (0..8)
+        .map(|t| {
+            let ep = ep.to_owned();
+            std::thread::spawn(move || {
+                for i in 0..8 {
+                    let input = format!(r#"{{"t":{t},"i":{i}}}"#);
+                    let out = pc::call(&ep, "debug", "echo", Some(&input), 5000).unwrap();
+                    assert!(out.contains(&input), "{out} lacks {input}");
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().unwrap();
+    }
+
+    // `polycall stop`: a wrong token is refused (exit 7) and the runtime
+    // keeps serving; the right one stops it, after which calls see no runtime
+    let wrong = format!("wrong-{}", token());
+    let out = cli_status(&["stop", "--endpoint", ep, "--auth-token", &wrong]);
+    assert_eq!(out.status.code(), Some(7), "{out:?}");
+    pc::call(ep, "debug", "echo", Some("1"), 5000).expect("still serving");
+    let out = cli_status(&["stop", "--endpoint", ep, "--auth-token", token()]);
+    assert!(out.status.success(), "{out:?}");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match pc::call(ep, "debug", "echo", None, 1000) {
+            Err(e) if e.code == status::TRANSPORT => break,
+            other => assert!(Instant::now() < deadline, "runtime did not stop: {other:?}"),
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     drop(rt);
 
     // no runtime: a port nobody listens on
@@ -412,7 +479,7 @@ fn auth_failure_is_reported_and_nothing_is_queued() {
 
 #[test]
 fn send_to_dead_peer_and_timeouts() {
-    let a = Peer::open("dead-a", None, Some(TOKEN)).unwrap();
+    let a = Peer::open("dead-a", None, Some(token())).unwrap();
     assert_eq!(a.endpoint().unwrap(), "", "send-only node has no endpoint");
     let c = node("dead-c");
     let ec = c.endpoint().unwrap();
@@ -502,7 +569,7 @@ fn concurrent_senders() {
         .map(|t| {
             let eb = eb.clone();
             std::thread::spawn(move || {
-                let s = Peer::open(&format!("sender-{t}"), None, Some(TOKEN)).unwrap();
+                let s = Peer::open(&format!("sender-{t}"), None, Some(token())).unwrap();
                 for i in 0..25 {
                     s.send(
                         &eb,
@@ -542,7 +609,7 @@ fn interop_with_polycall_peer_serve_both_directions() {
     r.send(&c.endpoint, &binary, Some("r2c-bin"), 5000).unwrap();
     let out = Command::new(cli())
         .args(["peer", "recv", "--to", &c.endpoint, "-t", "5000", "--raw"])
-        .env("POLYCALL_DEV_TOKEN", TOKEN)
+        .env("POLYCALL_DEV_TOKEN", token())
         .env("POLYCALL_TELEMETRY", "off")
         .output()
         .unwrap();
@@ -559,7 +626,7 @@ fn interop_with_polycall_peer_serve_both_directions() {
         .unwrap();
     let out = Command::new(cli())
         .args(["peer", "recv", "--to", &c.endpoint, "-t", "5000"])
-        .env("POLYCALL_DEV_TOKEN", TOKEN)
+        .env("POLYCALL_DEV_TOKEN", token())
         .env("POLYCALL_TELEMETRY", "off")
         .output()
         .unwrap();
@@ -593,7 +660,7 @@ fn interop_with_polycall_peer_serve_both_directions() {
             "--payload-file",
         ])
         .arg(&file)
-        .env("POLYCALL_DEV_TOKEN", TOKEN)
+        .env("POLYCALL_DEV_TOKEN", token())
         .env("POLYCALL_TELEMETRY", "off")
         .output()
         .unwrap();
@@ -618,4 +685,193 @@ fn interop_with_polycall_peer_serve_both_directions() {
         status::PROTOCOL,
         "identity must be checked"
     );
+}
+
+// ------------------------------------------------- call against the daemon
+
+/// Extract `"endpoint":"host:port"` from the daemon's state file.
+fn json_endpoint(text: &str) -> String {
+    let key = "\"endpoint\":\"";
+    let start = text.find(key).expect("endpoint in daemon.json") + key.len();
+    let end = text[start..].find('"').unwrap() + start;
+    text[start..end].to_owned()
+}
+
+#[test]
+fn call_against_polycall_daemon() {
+    let dir = tmp_path("daemon");
+    std::fs::create_dir_all(&dir).unwrap();
+    let pf = dir.join("Polycallfile");
+    std::fs::write(
+        &pf,
+        "daemon_endpoint=127.0.0.1:0\ndaemon_state_dir=state\nauth_token_env=RUST_POLYCALL_DAEMON_TOKEN\n",
+    )
+    .unwrap();
+    let daemon = |sub: &str| {
+        Command::new(cli())
+            .args(["daemon", sub])
+            .arg(&pf)
+            .env("RUST_POLYCALL_DAEMON_TOKEN", token())
+            .env("POLYCALL_TELEMETRY", "off")
+            .output()
+            .unwrap()
+    };
+    let out = daemon("start");
+    assert!(out.status.success(), "daemon start: {out:?}");
+    let state = std::fs::read_to_string(dir.join("state").join("daemon.json")).unwrap();
+    let ep = json_endpoint(&state);
+    let result = std::panic::catch_unwind(|| {
+        let out = pc::call(
+            &ep,
+            "inventory",
+            "get",
+            Some(r#"{"item_id":"gadget-c"}"#),
+            5000,
+        )
+        .unwrap();
+        assert!(
+            out.contains("\"quantity\":0") && out.contains("\"in_stock\":false"),
+            "{out}"
+        );
+        assert_eq!(
+            code(pc::call(&ep, "nosuch", "op", None, 5000)),
+            status::NOT_FOUND
+        );
+        assert_eq!(
+            code(pc::call(&ep, "debug", "sleep", Some(r#"{"ms":3000}"#), 200)),
+            status::TIMEOUT
+        );
+    });
+    let out = daemon("stop");
+    assert!(out.status.success(), "daemon stop: {out:?}");
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+    assert_eq!(
+        code(pc::call(&ep, "debug", "echo", None, 1000)),
+        status::TRANSPORT
+    );
+}
+
+// ------------------------------------------------ unicode, integers, threads
+
+#[test]
+fn unicode_config_path() {
+    let dir = tmp_path("r\u{fc}st-\u{43a}\u{43e}\u{43d}\u{444}\u{438}\u{433}-\u{4e16}\u{754c}");
+    std::fs::create_dir_all(&dir).unwrap();
+    let rc = dir.join("rust-polycallrc-\u{e9}");
+    std::fs::write(&rc, "log_level=info\nmax_connections=10\n").unwrap();
+    let path = rc.to_str().unwrap();
+    pc::run_config(Some(path), true).expect("non-ASCII path, strict");
+    pc::run_config(Some(path), false).expect("non-ASCII path, validate");
+    let json = pc::describe(Some(path)).unwrap();
+    assert!(json.contains("\"max_connections\":\"10\""), "{json}");
+    let missing = dir.join("missing-\u{fc}");
+    let e = pc::run_config(Some(missing.to_str().unwrap()), true).unwrap_err();
+    assert_eq!(e.code, status::NOT_FOUND);
+    assert!(e.detail.contains("missing-\u{fc}"), "detail: {}", e.detail);
+}
+
+#[test]
+fn error_carries_code_strerror_name_and_detail() {
+    let missing = tmp_path("absent-rc");
+    let e = pc::run_config(Some(missing.to_str().unwrap()), true).unwrap_err();
+    assert_eq!(e.code, -7);
+    assert_eq!(e.name, pc::strerror(-7));
+    assert_eq!(e.short_name(), "POLYCALL_E_NOT_FOUND");
+    assert!(e.detail.contains("absent-rc"), "{e:?}");
+    let shown = e.to_string();
+    assert!(
+        shown.starts_with("POLYCALL_E_NOT_FOUND") && shown.contains("absent-rc"),
+        "{shown}"
+    );
+    // the detail is per thread: another thread's failure does not leak in
+    let other = std::thread::spawn(|| pc::run_config(Some(""), true).unwrap_err())
+        .join()
+        .unwrap();
+    assert_eq!(other.code, status::INVALID_ARGUMENT);
+    assert!(!other.detail.contains("absent-rc"), "{other:?}");
+}
+
+#[test]
+fn integer_boundaries() {
+    // call(): the library accepts 1..=600000 ms
+    assert_eq!(
+        code(pc::call("127.0.0.1:1", "debug", "echo", None, 600_001)),
+        status::INVALID_ARGUMENT
+    );
+    assert_eq!(
+        code(pc::call("127.0.0.1:1", "debug", "echo", None, u32::MAX)),
+        status::INVALID_ARGUMENT
+    );
+    assert_eq!(
+        code(pc::call("127.0.0.1:1", "debug", "echo", None, 600_000)),
+        status::TRANSPORT,
+        "600000 ms is a valid deadline (nothing listens on port 1)"
+    );
+    let a = node("int-a");
+    let b = node("int-b");
+    let eb = b.endpoint().unwrap();
+    // exactly 1 MiB through a buffer of exactly 1 MiB; one byte less is too small
+    let max: Vec<u8> = (0..pc::PEER_MAX_PAYLOAD).map(|i| (i % 253) as u8).collect();
+    a.send(&eb, &max, Some("exact"), 20000).unwrap();
+    let e = b
+        .recv_with_capacity(20000, pc::PEER_MAX_PAYLOAD - 1)
+        .unwrap_err();
+    assert_eq!(
+        (e.code, e.needed),
+        (status::TOO_LARGE, Some(pc::PEER_MAX_PAYLOAD))
+    );
+    let m = b.recv_with_capacity(0, pc::PEER_MAX_PAYLOAD).unwrap();
+    assert!(m.payload == max && m.message_id == "exact");
+    // a zero-capacity buffer: TOO_LARGE with the size, message kept
+    a.send(&eb, b"seven!!", Some("seven"), 5000).unwrap();
+    let e = b.recv_with_capacity(5000, 0).unwrap_err();
+    assert_eq!((e.code, e.needed), (status::TOO_LARGE, Some(7)));
+    assert_eq!(b.recv(0).unwrap().payload, b"seven!!");
+    // an empty message fits a zero-capacity buffer
+    a.send(&eb, b"", Some("empty0"), 5000).unwrap();
+    let m = b.recv_with_capacity(5000, 0).unwrap();
+    assert!(m.payload.is_empty() && m.message_id == "empty0");
+    // recv timeout 0 polls; ids of 63 bytes pass, 64 are refused
+    assert_eq!(code(b.recv(0)), status::TIMEOUT);
+    let id63 = "i".repeat(63);
+    a.send(&eb, b"x", Some(&id63), 5000).unwrap();
+    assert_eq!(b.recv(5000).unwrap().message_id, id63);
+    assert_eq!(
+        code(a.send(&eb, b"x", Some(&"i".repeat(64)), 5000)),
+        status::INVALID_ARGUMENT
+    );
+    assert_eq!(
+        code(Peer::open(&"n".repeat(64), None, None)),
+        status::INVALID_ARGUMENT
+    );
+}
+
+#[test]
+fn blocked_recv_does_not_block_other_threads() {
+    let waiter = Arc::new(node("blocked-w"));
+    let w = Arc::clone(&waiter);
+    let t = std::thread::spawn(move || w.recv(WAIT_FOREVER));
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!t.is_finished(), "recv returned without a message");
+    // meanwhile other threads use the library on other nodes ...
+    let a = node("busy-a");
+    let b = node("busy-b");
+    let eb = b.endpoint().unwrap();
+    let t0 = Instant::now();
+    for i in 0..20 {
+        let id = format!("m{i}");
+        a.send(&eb, id.as_bytes(), Some(&id), 5000).unwrap();
+        assert_eq!(b.recv(5000).unwrap().message_id, id);
+    }
+    assert!(t0.elapsed() < Duration::from_secs(10));
+    // ... and on the blocked node itself
+    assert!(waiter
+        .health()
+        .unwrap()
+        .contains("\"node_id\":\"blocked-w\""));
+    assert!(!t.is_finished());
+    waiter.cancel().unwrap();
+    assert_eq!(t.join().unwrap().unwrap_err().code, status::CANCELLED);
 }

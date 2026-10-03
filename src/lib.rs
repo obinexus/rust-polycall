@@ -19,6 +19,25 @@
 //!
 //! Before the first real call the crate checks
 //! `polycall_ffi_abi_version() == 1` and refuses to proceed otherwise.
+//!
+//! # Example
+//!
+//! Two nodes in one process exchanging a payload through the real library
+//! (each node owns its registry and inbox; nothing is shared implicitly):
+//!
+//! ```
+//! use rust_polycall::{Peer, WAIT_FOREVER};
+//!
+//! rust_polycall::check_abi()?;
+//! let inbox = Peer::open("doc-inbox", Some("127.0.0.1:0"), Some("doc-token"))?;
+//! let sender = Peer::open("doc-sender", None, Some("doc-token"))?; // send-only
+//! sender.send(&inbox.endpoint()?, b"hello\0world", Some("doc-1"), 5000)?;
+//! let msg = inbox.recv(WAIT_FOREVER)?;
+//! assert_eq!(msg.sender, "doc-sender");
+//! assert_eq!(msg.message_id, "doc-1");
+//! assert_eq!(msg.payload, b"hello\0world");
+//! # Ok::<(), rust_polycall::Error>(())
+//! ```
 
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
@@ -298,6 +317,12 @@ fn static_text(ptr: *const c_char) -> String {
 }
 
 /// `polycall_strerror(code)`: the static name of any status code.
+///
+/// ```
+/// use rust_polycall::{status, strerror};
+/// assert!(strerror(status::TIMEOUT).starts_with("POLYCALL_E_TIMEOUT"));
+/// assert!(strerror(-12345).starts_with("POLYCALL_E_UNKNOWN"));
+/// ```
 pub fn strerror(code: i32) -> String {
     // SAFETY: plain call; the result is static and never NULL.
     static_text(unsafe { sys::polycall_strerror(code) })
@@ -380,6 +405,22 @@ pub fn library_version() -> Result<String> {
 /// validate for running with this build (unknown keys are errors,
 /// `tls_enabled=true` is `E_UNSUPPORTED`). It never starts a service.
 /// `None` is passed to the core as NULL (`E_INVALID_ARGUMENT`).
+///
+/// ```
+/// use rust_polycall::{run_config, status};
+/// let dir = std::env::temp_dir().join(format!("rp-doc-{}", std::process::id()));
+/// std::fs::create_dir_all(&dir).unwrap();
+/// let rc = dir.join("rust-polycallrc");
+/// std::fs::write(&rc, "log_level=info\nmystery_key=1\n").unwrap();
+/// let rc = rc.to_str().unwrap();
+/// run_config(Some(rc), false)?; // validate: unknown keys are warnings
+/// let err = run_config(Some(rc), true).unwrap_err(); // for running: errors
+/// assert_eq!(err.code, status::CONFIG);
+/// assert!(err.detail.contains("mystery_key"), "{err}");
+/// let err = run_config(Some("/no/such/rust-polycallrc"), true).unwrap_err();
+/// assert_eq!(err.short_name(), "POLYCALL_E_NOT_FOUND");
+/// # Ok::<(), rust_polycall::Error>(())
+/// ```
 pub fn run_config(path: Option<&str>, run: bool) -> Result<()> {
     check_abi()?;
     let path = opt_cstring(path, "config path")?;
@@ -425,6 +466,16 @@ pub fn describe(path: Option<&str>) -> Result<String> {
 /// Returns the operation's output JSON. On a remote failure the error's
 /// [`Error::output`] holds the error object. Executes once; never retried.
 /// `timeout_ms` must be 1..=600000.
+///
+/// ```
+/// use rust_polycall::{call, status};
+/// // nothing listens on port 1: definitely not delivered
+/// let err = call("127.0.0.1:1", "debug", "echo", Some("{}"), 1000).unwrap_err();
+/// assert_eq!(err.code, status::TRANSPORT);
+/// // invalid JSON input is refused before any I/O
+/// let err = call("127.0.0.1:1", "debug", "echo", Some("{oops"), 1000).unwrap_err();
+/// assert_eq!(err.code, status::INVALID_ARGUMENT);
+/// ```
 pub fn call(
     endpoint: &str,
     service: &str,
@@ -698,5 +749,85 @@ impl Drop for Peer {
                 sys::polycall_peer_close(self.handle);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests of the conversion helpers (these link the real library
+    //! too: `strerror` is the core's own table).
+    use super::*;
+
+    #[test]
+    fn buffer_text_stops_at_the_first_nul() {
+        assert_eq!(buffer_text(b"abc\0def"), "abc");
+        assert_eq!(buffer_text(b"no nul"), "no nul");
+        assert_eq!(buffer_text(b""), "");
+        assert_eq!(buffer_text(b"\xff\0"), "\u{fffd}");
+    }
+
+    #[test]
+    fn interior_nul_is_refused_before_the_core() {
+        let e = cstring("a\0b", "node_id").unwrap_err();
+        assert_eq!(e.code, sys::POLYCALL_E_INVALID_ARGUMENT);
+        assert!(e.detail.contains("node_id") && e.detail.contains("at 1"));
+        assert!(opt_cstring(None, "x").unwrap().is_none());
+        assert!(opt_ptr(&None).is_null());
+    }
+
+    #[test]
+    fn error_display_and_short_name() {
+        let e = Error::local(sys::POLYCALL_E_TIMEOUT, "slow");
+        assert_eq!(e.short_name(), "POLYCALL_E_TIMEOUT");
+        assert_eq!(e.to_string(), format!("{} (-4): slow", strerror(-4)));
+        let quiet = Error::local(sys::POLYCALL_E_BUSY, "");
+        assert_eq!(quiet.to_string(), format!("{} (-11)", strerror(-11)));
+        let as_dyn: Box<dyn std::error::Error> = Box::new(e.clone());
+        assert!(as_dyn.to_string().contains("slow"));
+    }
+
+    #[test]
+    fn status_codes_match_polycall_h() {
+        let codes = [
+            (status::OK, 0, "POLYCALL_OK"),
+            (status::INVALID_ARGUMENT, -1, "POLYCALL_E_INVALID_ARGUMENT"),
+            (status::NO_MEMORY, -2, "POLYCALL_E_NO_MEMORY"),
+            (status::INVALID_HANDLE, -3, "POLYCALL_E_INVALID_HANDLE"),
+            (status::TIMEOUT, -4, "POLYCALL_E_TIMEOUT"),
+            (status::TRANSPORT, -5, "POLYCALL_E_TRANSPORT"),
+            (status::PROTOCOL, -6, "POLYCALL_E_PROTOCOL"),
+            (status::NOT_FOUND, -7, "POLYCALL_E_NOT_FOUND"),
+            (status::AUTH, -8, "POLYCALL_E_AUTH"),
+            (status::REMOTE, -9, "POLYCALL_E_REMOTE"),
+            (status::TOO_LARGE, -10, "POLYCALL_E_TOO_LARGE"),
+            (status::BUSY, -11, "POLYCALL_E_BUSY"),
+            (status::CANCELLED, -12, "POLYCALL_E_CANCELLED"),
+            (status::CONFIG, -13, "POLYCALL_E_CONFIG"),
+            (status::ADDRESS_IN_USE, -14, "POLYCALL_E_ADDRESS_IN_USE"),
+            (status::UNSUPPORTED, -15, "POLYCALL_E_UNSUPPORTED"),
+            (status::PERMISSION, -16, "POLYCALL_E_PERMISSION"),
+            (status::CLOSED, -17, "POLYCALL_E_CLOSED"),
+            (status::INTERNAL, -18, "POLYCALL_E_INTERNAL"),
+        ];
+        for (constant, value, name) in codes {
+            assert_eq!(constant, value, "{name}");
+            // the core's strerror agrees on every name
+            assert!(
+                strerror(value).starts_with(name),
+                "{name}: {}",
+                strerror(value)
+            );
+        }
+    }
+
+    #[test]
+    fn limits_match_polycall_h() {
+        assert_eq!(sys::POLYCALL_PEER_ID_MAX, 64);
+        assert_eq!(sys::POLYCALL_MESSAGE_ID_MAX, 64);
+        assert_eq!(sys::POLYCALL_ENDPOINT_MAX, 128);
+        assert_eq!(PEER_MAX_PAYLOAD, 1 << 20);
+        assert_eq!(CALL_MAX_OUTPUT, 1 << 20);
+        assert_eq!(WAIT_FOREVER, u32::MAX);
+        assert_eq!(ABI_VERSION, 1);
     }
 }
