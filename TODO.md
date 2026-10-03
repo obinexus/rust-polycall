@@ -14,4 +14,4 @@ tested against the real installed core (Linux: rust:1 and the MSRV 1.82).
 - [ ] Run `cargo test` natively on Windows (MSVC target with `polycall.lib`,
       GNU target with `libpolycall.dll.a`) - no Rust toolchain on the QA host.
 - [ ] Publish the crate to crates.io (name `rust-polycall` is unclaimed) when a release is planned.
-- [ ] Publish `@obinexusltd/rust-polycall` to npm when a release is planned.
+- [ ] Publish `rust-polycall` to npm when a release is planned.

@@ -108,8 +108,8 @@ has not run natively there. The test executables cross-compiled for
 
 ## npm
 
-`@obinexusltd/rust-polycall` (not yet published) ships this source tree for
-JavaScript tooling; `require('@obinexusltd/rust-polycall')` returns an index
+`rust-polycall` (not yet published) ships this source tree for
+JavaScript tooling; `require('rust-polycall')` returns an index
 of its files. It does not load the native library from JavaScript.
 
 Author: Nnamdi Michael Okpala <okpalan@protonmail.com> - License: MIT

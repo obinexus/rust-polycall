@@ -7,7 +7,7 @@ const path = require('node:path');
 const api = require('..');
 const pkg = require('../package.json');
 
-assert.equal(pkg.name, '@obinexusltd/rust-polycall');
+assert.equal(pkg.name, 'rust-polycall');
 // one version across the npm, Cargo and binding manifests
 const cargoVersion = /^version = "([^"]+)"/m.exec(fs.readFileSync(path.join(__dirname, '..', 'Cargo.toml'), 'utf8'))[1];
 assert.equal(pkg.version, cargoVersion);

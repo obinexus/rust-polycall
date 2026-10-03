@@ -50,7 +50,7 @@ function resolve(directoryName, ...segments) {
 }
 
 module.exports = Object.freeze({
-  packageName: '@obinexusltd/rust-polycall',
+  packageName: 'rust-polycall',
   projectRoot: __dirname,
   directories,
   resolve,

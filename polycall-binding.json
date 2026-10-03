@@ -1,6 +1,6 @@
 {
   "name": "rust-polycall",
-  "package": "@obinexusltd/rust-polycall",
+  "package": "rust-polycall",
   "crate": "rust-polycall",
   "version": "2.0.0",
   "language": "Rust",
