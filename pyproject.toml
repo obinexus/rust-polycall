@@ -12,4 +12,6 @@ support = "supported"
 linux_image = "rust:1"
 build = "cargo build --all-targets"
 test = "cargo test && cargo clippy --all-targets -- -D warnings"
+# no Rust toolchain on the Windows QA host; tests cross-built for
+# x86_64-pc-windows-gnu are run there instead
 windows_test = ""
